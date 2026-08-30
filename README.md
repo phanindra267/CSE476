@@ -1,126 +1,73 @@
 # Flight Option Finder — Agentic AI Travel Assistant
 
-## Problem
-Searching for flights often involves juggling multiple tabs, manually applying constraints, and attempting to find the perfect balance between price, schedule, and layovers. A standard search engine requires the user to constantly tweak filters. This project solves that by introducing an **AI Agent** that understands constraints (e.g., budget limits) and soft preferences (e.g., time of day, non-stop), autonomously executes search and comparison tools, and presents a reasoned recommendation.
+## What It Does
 
-## Why this is an agent
-This is not a traditional chatbot. It implements a true agentic loop:
-1. **Tool usage**: It has discrete tools (`search_flights`, `compare_price`) that it invokes based on a plan.
-2. **Multi-step decision making**: It doesn't just call one tool. It searches for flights, *observes* the results, applies budget constraints to filter them, and *then* decides to call the price comparison tool on the remaining valid options before applying soft preferences.
-3. **Memory**: It maintains state across conversational turns. If you tell it your budget in Turn 1, it will automatically apply that constraint when you ask for a route in Turn 2.
+The Flight Option Finder is an AI **agent** (not a chatbot) that finds and picks flights within a user's budget. It implements a genuine **PLAN → ACT → OBSERVE → DECIDE** loop: given a natural-language goal like *"Find a non-stop flight from Delhi to Mumbai under ₹6,000"*, the agent retrieves stored memory, parses the request, creates an execution plan, calls `search_flights(from, to)` to discover available flights, observes the results and applies budget filtering, calls `compare_price(options, budget)` to rank and compare candidates, then runs a decision engine that scores each flight by price, non-stop status, and time preference. It always provides a **primary recommendation** and a **second-best fallback**. The entire multi-step trace is recorded so every decision is transparent and explainable.
 
-## Tools
-1. `search_flights(origin, destination, date)`: Connects to our flight data provider (mocked locally) to retrieve raw flight schedules for a specific route.
-2. `compare_price(options)`: A computational tool that takes the list of valid options, sorts them, isolates the cheapest and second-best alternatives, and calculates the exact price difference for the agent to consider.
+## Tools and Memory
 
-## Memory
-The agent uses a session-based memory module (`AgentMemory`). It remembers:
-- Budget constraints
-- Preferred time of day
-- Non-stop preferences
-- Last searched route
+The agent uses two working tools: **`search_flights(from_city, to_city)`** searches a local flight dataset and returns structured flight dictionaries with airline, price, stops, and schedule. **`compare_price(options, budget)`** sorts flights by price, identifies the cheapest and second-best options, separates under-budget from over-budget flights, and isolates non-stop flights within budget. Both tools are real Python functions that execute and return data used by the agent — there are no fake tool calls.
 
-This affects future decisions by automatically injecting these constraints into the `evaluate_results` and `apply_preferences` steps of the agent loop, without requiring the user to restate them.
+**Memory** (`ConversationMemory`) persists across multiple turns within the same session. It stores the user's budget, origin, destination, non-stop preference, and time-of-day preference. In Turn 1, the user might say *"My budget is ₹6,000 and I prefer non-stop from Delhi to Mumbai"*. In Turn 2, when the user says *"Find another flight"*, the agent reads memory, retrieves the stored constraints, and uses them without requiring the user to repeat anything. Memory is written after every turn and read at the start of every turn.
 
-## Architecture
+## Honest Failure
 
-```text
-Frontend (React/Vite)
-   │
-   ▼ HTTP
-Backend (FastAPI)
-   │
-   ▼
-Agent State Machine
-   ├── Memory (Session state)
-   ├── Planning (Intent parsing)
-   └── Tool execution
-          ├── search_flights
-          └── compare_price
-   │
-   ▼
-Recommendation Engine
-```
+During development, `compare_price` crashed with a `TypeError` when `search_flights` returned an empty list for an unknown route and the agent passed the empty list to comparison without checking. The fix was two-fold: (1) `compare_price` now validates its input and returns a structured "no options available" response instead of crashing, and (2) the agent's `observe_search` step detects an empty result set and skips comparison entirely, transitioning directly to the decision step which reports honestly that no flights exist for the route. This is demonstrated in Scenario 3 of the notebook, where a ₹2,000 budget produces no valid options and the agent reports the gap to the closest available flight.
 
-## Installation
+---
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
+## Run
 
-### Setup
-
-1. **Clone/Navigate to the directory**:
-   ```bash
-   cd flight-option-finder
-   ```
-
-2. **Backend Setup**:
-   ```bash
-   cd backend
-   python -m venv venv
-   # Windows: venv\Scripts\activate | Mac/Linux: source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-3. **Frontend Setup**:
-   ```bash
-   cd frontend
-   npm install
-   ```
-
-## Environment variables
-There is an `.env.example` file. Since this project is configured to run deterministically using local mocked data, no API keys are required to run the core agent demo.
-
-```env
-# .env.example
-PORT=8000
-ENVIRONMENT=development
-# LLM_API_KEY= # Not required for deterministic local run
-```
-
-## Running backend
-From the `backend` directory:
 ```bash
-uvicorn app.main:app --reload --port 8000
+# Install dependencies
+pip install -r requirements.txt
+
+# Run tests (57 tests)
+python -m pytest tests/ -v
+
+# Run notebook
+jupyter notebook notebooks/flight_option_finder_demo.ipynb
 ```
 
-## Running frontend
-From the `frontend` directory:
-```bash
-npm run dev
+## Project Structure
+
+```
+CSE476/
+├── README.md
+├── requirements.txt
+├── .env.example
+├── .gitignore
+├── data/
+│   └── flights.json            # 23 flights across 7 routes
+├── src/
+│   ├── agent/
+│   │   ├── flight_agent.py     # Core agent with plan-act loop
+│   │   ├── state.py            # AgentState + structured trace
+│   │   ├── memory.py           # ConversationMemory (persists across turns)
+│   │   └── planner.py          # NLP intent parser
+│   ├── tools/
+│   │   ├── search_flights.py   # Tool 1: search_flights(from, to)
+│   │   └── compare_price.py    # Tool 2: compare_price(options, budget)
+│   ├── models/
+│   │   └── flight.py           # Flight dataclass
+│   └── config.py
+├── tests/
+│   ├── test_search_flights.py
+│   ├── test_compare_price.py
+│   ├── test_memory.py
+│   └── test_agent.py
+└── notebooks/
+    └── flight_option_finder_demo.ipynb  # 3 scenarios
 ```
 
-## Running notebook
-From the root directory:
-```bash
-jupyter notebook notebooks/agent_demo.ipynb
-```
-*(Requires Jupyter to be installed in your environment)*
+## Viva Reference
 
-## Testing
-From the `backend` directory:
-```bash
-pytest
-```
-
-## Demo scenarios
-
-1. **Normal Search**: "Find a flight from Delhi to Mumbai under 8000."
-   - Agent extracts route and budget, calls search, evaluates, calls compare, and recommends the best option.
-2. **Memory Context**: 
-   - Turn 1: "My budget is 7000 and I want a morning flight." (Agent saves this).
-   - Turn 2: "Find me a flight from DEL to BOM." (Agent automatically applies the 7000 budget and morning preference).
-3. **Failure/No Valid Option**: "Find a flight from Delhi to Mumbai under 5000."
-   - Agent searches, applies the 5000 budget constraint, observes 0 remaining flights, and gracefully fails without calling `compare_price`.
-
-## Honest failure
-**Failure:** During the initial development of the `compare_price` tool and the evaluation loop, the agent failed to properly filter flights by budget because the JSON data stored prices as strings (e.g., `"7450"`), causing string-based sorting which produced incorrect "cheapest" flights (e.g., `"10000"` was considered cheaper than `"8000"`).
-
-**Fix:** I introduced explicit Pydantic schemas (`Flight` schema) to strictly type the data. The backend now parses the JSON and casts `price` to a `float`. The evaluation logic (`f["price"] <= self.memory.budget`) was also updated to ensure strict numerical comparison before sorting.
-
-## Viva preparation
-- **Where is the agent loop?**: `backend/app/agent/graph.py` inside the `run()` function. It explicitly transitions through states.
-- **Where are tools implemented?**: `backend/app/tools/`
-- **Where is memory implemented?**: `AgentMemory` in `backend/app/agent/state.py`.
-- **How do tool results influence decisions?**: In `_evaluate_results`, if `valid_flights` becomes empty after applying constraints to the results of `search_flights`, the agent skips `_execute_compare` entirely and transitions directly to `_select_option` to report failure.
+| Question | Where to find it |
+|---|---|
+| Where is the plan-act loop? | `src/agent/flight_agent.py` → `run()` method (while loop with state transitions) |
+| Where does the agent decide the next step? | Each `_step_*` method sets `state.current_step` based on observations |
+| Where are tool calls? | `_step_execute_search` → `search_flights()`, `_step_execute_compare` → `compare_price()` |
+| Where is memory written? | `_step_memory_update` writes to `self.memory` |
+| Where is memory read? | `_step_retrieve_memory` reads from `self.memory` and applies to state |
+| How do tool results influence decisions? | `_step_observe_search` filters by budget; `_step_decision` scores by price + preferences |
+| How are failures handled? | Empty results → skip compare → report honestly with closest fallback |

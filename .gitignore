@@ -5,13 +5,25 @@ __pycache__/
 venv/
 env/
 .env
+*.egg-info/
 
-# Node
-node_modules/
-dist/
-build/
-.DS_Store
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data artifacts
+data/*.db
